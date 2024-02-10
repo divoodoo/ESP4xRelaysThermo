@@ -1,0 +1,170 @@
+##################################
+ ####   ESPHOME THERMO CODE    ####
+ ####    BY STEVEN LOVEJOY     ####
+ ##################################
+ ## NODE-MCU V3 PINOUTS          ##
+ ##################################
+ ## D2 = DHT11 output            ##
+ ## D3 = Output_A rotary encoder ##
+ ## D4 = Output_B rotary encoder ##
+ ## D6 = scl 128x64 ssd1306 oled ##
+ ## D7 = sda 128x64 ssd1306 oled ##
+ ## 3v3 oled & DHT11 positive    ##
+ ##################################
+ ## download font files to       ##
+ ## /config/esphome/             ##
+ ##################################
+ 
+ esphome:
+  name: Thermo
+  platform: ESP8266
+  board: nodemcuv2
+
+wifi:
+  ssid: '**********'
+  password: '**************'
+
+# Enable logging
+logger:
+
+# Enable Home Assistant API
+api:
+  password: '*************'
+
+ota:
+  password: '***************'
+  
+# TIME FROM HASSIO
+time:
+  - platform: homeassistant
+    id: times
+
+sensor:
+# LOUNGE TEMP FROM HASSIO
+  - platform: homeassistant
+    id: lounge_temperature
+    entity_id: sensor.lounge_temp
+    internal: true
+
+# HEATING TARGET TEMP FROM HASSIO
+  - platform: homeassistant
+    entity_id: sensor.target_temp_2
+    name: "Target Temp State"
+    id: target_temp_2
+    internal: true
+    on_value:
+    - sensor.rotary_encoder.set_value:
+       id: thermo_encoder
+       value: !lambda "return id(target_temp_2).state * 2;"
+       
+# ONBOARD DHT11 TEMP & HUMIDITY SENSOR
+  - platform: dht
+    pin: D2
+    temperature:
+      id: thermo_temperature
+      name: "Thermo Temperature"
+    humidity:
+      id: thermo_humidity
+      name: "Thermo Humidity"
+    update_interval: 60s
+    model: DHT11
+
+# ONBOARD ROTARY ENCODER
+  - platform: rotary_encoder
+    name: "Thermo Encoder"
+    id: thermo_encoder
+    pin_a: D3
+    pin_b: D4
+    min_value: 20
+    max_value: 70
+    resolution: 2
+    filters:
+    - lambda: return x * 0.5;
+    on_value:
+      then:
+      - delay: 0.2s
+      - homeassistant.service:
+          service: climate.set_temperature
+          data_template:
+            entity_id: climate.lounge
+            temperature: !lambda "return id(thermo_encoder).state;"
+
+# SET FONTS
+font:
+  - file: 'slkscr.ttf'
+    id: font1
+    size: 8
+
+  - file: 'arial.ttf'
+    id: font2
+    size: 16
+    
+  - file: 'BebasNeue-Regular.ttf'
+    id: font3
+    size: 36
+    
+  - file: 'BebasNeue-Regular.ttf'
+    id: font4
+    size: 50
+
+# ICON SIZE 20
+  - file: 'materialdesignicons-webfont.ttf'
+    id: icon_font_20
+    size: 20
+    glyphs: [
+      "\U000F0238"
+      ]
+# ICON SIZE 30  
+  - file: 'materialdesignicons-webfont.ttf'
+    id: icon_font_30
+    size: 30
+    glyphs: [
+      "\U000F0238"
+      ]
+
+# HEATING STATE BINARY FROM HASSIO
+binary_sensor:
+  - platform: homeassistant
+    entity_id: binary_sensor.heating_state
+    name: "Heating State Binary"
+    id: heating_state_binary
+    internal: true
+
+# HEATING STATE TEXT FROM HASSIO
+text_sensor:
+  - platform: homeassistant
+    entity_id: binary_sensor.heating_state
+    name: "Heating State"
+    id: heating_state
+    internal: true
+
+# ONBOARD OLED DISPLAY
+i2c:
+  scl: D6
+  sda: D7
+  scan: false
+    
+display:
+  - platform: ssd1306_i2c
+    model: "SSD1306 128x64"
+    reset_pin: D0
+    address: 0x3C
+    lambda: |-
+    
+      // Print time in HH:MM format (from hassio)
+      it.strftime(64, 5, id(font2), TextAlign::TOP_CENTER, "%H:%M", id(times).now());
+      
+      // Print font icon if heating is on
+      if (id(heating_state_binary).state) {
+        it.print(10, 0, id(icon_font_30), TextAlign::TOP_LEFT, "\U000F0238");
+      }
+      
+      // Print climate target temperature (from hassio)
+      if (id(thermo_encoder).has_state()) {
+        it.printf(10, 30, id(font3), TextAlign::TOP_LEFT , "%.0f°", id(target_temp_2).state);
+      }
+
+      // Print lounge temperature (from hassio)
+      if (id(lounge_temperature).has_state()) {
+        it.printf(70, 20, id(font4), TextAlign::TOP_LEFT, "%.0f°", id(lounge_temperature).state);
+      }
